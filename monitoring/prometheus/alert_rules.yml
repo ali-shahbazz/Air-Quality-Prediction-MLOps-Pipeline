@@ -1,0 +1,40 @@
+# monitoring/prometheus/alert_rules.yml
+
+groups:
+  - name: environmental_monitoring
+    rules:
+      - alert: HighPredictionLatency
+        expr: http_request_duration_seconds{handler="/predict"} > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: High prediction latency
+          description: Prediction endpoint latency is above 1 second
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: High error rate
+          description: Error rate is above 10%
+
+      - alert: ModelPredictionOutlier
+        expr: abs(predicted_aqi - actual_aqi) > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Model prediction outlier detected
+          description: Large difference between predicted and actual AQI values
+
+      - alert: DataCollectionFailure
+        expr: rate(data_collection_failures_total[15m]) > 0
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Data collection failures detected
+          description: Environmental data collection is failing

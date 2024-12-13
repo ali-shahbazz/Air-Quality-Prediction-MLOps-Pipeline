@@ -1,0 +1,6 @@
+[core]
+    remote = myremote
+['remote "storage"']
+    url = https://github.com/NUCES-ISB/course-project-ali-shahbazz.git
+['remote "myremote"']
+    url = ../dvc-storage
