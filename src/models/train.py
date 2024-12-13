@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 import mlflow
 import mlflow.sklearn
-from sklearn.model_selection import train_test_split, TimeSeriesSplit
+from sklearn.model_selection import train_test_split, TimeSeriesSplit, GridSearchCV
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import logging
@@ -67,50 +67,59 @@ class ModelTrainer:
         return X_train, X_test, y_train, y_test
 
     def train_models(self):
-        """Train multiple models and track with MLflow"""
+        """Train models with hyperparameter tuning"""
         X_train, X_test, y_train, y_test = self.prepare_data()
         
         models = {
-            'random_forest': RandomForestRegressor(random_state=42),
-            'gradient_boosting': GradientBoostingRegressor(random_state=42)
+            'RandomForest': RandomForestRegressor(),
+            'GradientBoosting': GradientBoostingRegressor()
+        }
+        
+        param_grids = {
+            'RandomForest': {
+                'n_estimators': [50, 100, 200],
+                'max_depth': [None, 10, 20],
+                'min_samples_split': [2, 5, 10]
+            },
+            'GradientBoosting': {
+                'n_estimators': [50, 100, 200],
+                'learning_rate': [0.01, 0.1, 0.2],
+                'max_depth': [3, 5, 7]
+            }
         }
         
         best_model = None
         best_rmse = float('inf')
-        best_model_name = None
         
         for model_name, model in models.items():
-            with mlflow.start_run(run_name=f"{model_name}{datetime.now().strftime('%Y%m%d%H%M%S')}"):
-                logger.info(f"Training {model_name}...")
-                
-                # Log parameters
-                params = model.get_params()
-                mlflow.log_params(params)
-                
-                # Train model
-                model.fit(X_train, y_train)
-                
-                # Make predictions
-                y_pred = model.predict(X_test)
-                
-                # Calculate metrics
-                rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-                mae = mean_absolute_error(y_test, y_pred)
-                r2 = r2_score(y_test, y_pred)
-                
-                # Log metrics
+            logger.info(f"Training {model_name} with hyperparameter tuning...")
+            
+            grid_search = GridSearchCV(model, param_grids[model_name], cv=TimeSeriesSplit(n_splits=5), scoring='neg_mean_squared_error')
+            grid_search.fit(X_train, y_train)
+            
+            best_model = grid_search.best_estimator_
+            best_params = grid_search.best_params_
+            logger.info(f"Best parameters for {model_name}: {best_params}")
+            
+            # Evaluate the best model
+            y_pred = best_model.predict(X_test)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            
+            # Log metrics and model with MLflow
+            with mlflow.start_run(run_name=f"{model_name}_{datetime.now().strftime('%Y%m%d%H%M%S')}"):
+                mlflow.log_params(best_params)
                 mlflow.log_metric("rmse", rmse)
                 mlflow.log_metric("mae", mae)
                 mlflow.log_metric("r2", r2)
-                
-                # Log model
-                mlflow.sklearn.log_model(model, model_name)
+                mlflow.sklearn.log_model(best_model, model_name)
                 
                 # Save feature importance plot
-                if hasattr(model, 'feature_importances_'):
+                if hasattr(best_model, 'feature_importances_'):
                     feature_importance = pd.DataFrame({
                         'feature': self.feature_columns,
-                        'importance': model.feature_importances_
+                        'importance': best_model.feature_importances_
                     }).sort_values('importance', ascending=False)
                     
                     feature_importance.to_csv(f"feature_importance_{model_name}.csv")
@@ -121,37 +130,16 @@ class ModelTrainer:
                 # Track best model
                 if rmse < best_rmse:
                     best_rmse = rmse
-                    best_model = model
-                    best_model_name = model_name
+                    best_model = best_model
         
-        # Save best model
-        logger.info(f"Best model: {best_model_name} with RMSE: {best_rmse:.4f}")
+        # Save the best model
         best_model_path = self.models_path / f"best_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
         joblib.dump(best_model, best_model_path)
-        
-        # Save model metadata
-        metadata = {
-            "model_name": best_model_name,
-            "timestamp": datetime.now().isoformat(),
-            "metrics": {
-                "rmse": float(best_rmse),
-                "feature_columns": self.feature_columns
-            }
-        }
-        
-        with open(self.models_path / "model_metadata.json", 'w') as f:
-            json.dump(metadata, f, indent=4)
-        
-        return best_model, best_rmse
+        logger.info(f"Best model saved to {best_model_path}")
 
 def main():
-    try:
-        trainer = ModelTrainer()
-        best_model, best_rmse = trainer.train_models()
-        logger.info("Model training completed successfully")
-    except Exception as e:
-        logger.error(f"Model training failed: {str(e)}")
-        raise
+    trainer = ModelTrainer()
+    trainer.train_models()
 
 if __name__ == "__main__":
     main()

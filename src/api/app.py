@@ -11,11 +11,6 @@ import logging
 from datetime import datetime
 import json
 
-# Add project root to Python path
-sys.path.append(str(Path(__file__).parent.parent.parent))
-
-from src.models.predict import PollutionPredictor
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -39,10 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize predictor
-predictor = PollutionPredictor()
-
-# Pydantic models for request/response
+# Pydantic models
 class PredictionInput(BaseModel):
     city: str
     temperature: float
@@ -56,6 +48,8 @@ class PredictionInput(BaseModel):
     so2: float
     pm2_5: float
     pm10: float
+    temperature_rolling_mean_6h: Optional[float] = None
+    humidity_rolling_mean_6h: Optional[float] = None
     aqi_lag_1h: Optional[float] = None
     aqi_lag_3h: Optional[float] = None
     aqi_lag_6h: Optional[float] = None
@@ -66,6 +60,15 @@ class PredictionResponse(BaseModel):
     confidence_upper: float
     risk_level: str
     timestamp: str
+
+# Initialize predictor
+try:
+    from src.models.predict import PollutionPredictor
+    predictor = PollutionPredictor()
+    logger.info("Model loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize predictor: {str(e)}")
+    predictor = None
 
 @app.get("/")
 async def root():
@@ -80,8 +83,7 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     try:
-        # Verify model is loaded
-        if predictor.model is None:
+        if predictor is None or predictor.model is None:
             raise HTTPException(status_code=503, detail="Model not loaded")
         
         return {
@@ -92,7 +94,7 @@ async def health_check():
             }
         }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str)# src/api/app.py (continued)
+        raise HTTPException(status_code=503, detail=str(e))
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(input_data: PredictionInput):
@@ -108,13 +110,21 @@ async def predict(input_data: PredictionInput):
         data['month'] = current_time.month
         data['is_weekend'] = int(current_time.weekday() >= 5)
         
-        # Fill missing lag values if not provided
+        # Calculate or use provided rolling means
+        if input_data.temperature_rolling_mean_6h is None:
+            data['temperature_rolling_mean_6h'] = data['temperature']
+        if input_data.humidity_rolling_mean_6h is None:
+            data['humidity_rolling_mean_6h'] = data['humidity']
+        
+        # Fill lag values
         if input_data.aqi_lag_1h is None:
-            data['aqi_lag_1h'] = data['pm2_5'] * 0.5  # Approximate
+            data['aqi_lag_1h'] = (data['pm2_5'] * 0.5 + data['pm10'] * 0.5) * 2  # Approximate AQI
         if input_data.aqi_lag_3h is None:
             data['aqi_lag_3h'] = data['aqi_lag_1h']
         if input_data.aqi_lag_6h is None:
-            data['aqi_lag_6h'] = data['aqi_lag_3h']
+            data['aqi_lag_6h'] = data['aqi_lag_1h']
+        
+        logger.info(f"Prepared features for prediction: {data.columns.tolist()}")
         
         # Make prediction
         predictions = predictor.predict(data)
@@ -124,10 +134,11 @@ async def predict(input_data: PredictionInput):
             "predicted_aqi": float(predictions['predicted_aqi'].iloc[0]),
             "confidence_lower": float(predictions['confidence_lower'].iloc[0]),
             "confidence_upper": float(predictions['confidence_upper'].iloc[0]),
-            "risk_level": predictions['risk_level'].iloc[0],
+            "risk_level": str(predictions['risk_level'].iloc[0]),
             "timestamp": current_time.isoformat()
         }
         
+        logger.info(f"Prediction successful: {response}")
         return response
         
     except Exception as e:
@@ -154,6 +165,20 @@ async def predict_future(input_data: PredictionInput, hours_ahead: int = 24):
         data['month'] = current_time.month
         data['is_weekend'] = int(current_time.weekday() >= 5)
         
+        # Calculate or use provided rolling means
+        if input_data.temperature_rolling_mean_6h is None:
+            data['temperature_rolling_mean_6h'] = data['temperature']
+        if input_data.humidity_rolling_mean_6h is None:
+            data['humidity_rolling_mean_6h'] = data['humidity']
+        
+        # Fill lag values
+        if input_data.aqi_lag_1h is None:
+            data['aqi_lag_1h'] = (data['pm2_5'] * 0.5 + data['pm10'] * 0.5) * 2
+        if input_data.aqi_lag_3h is None:
+            data['aqi_lag_3h'] = data['aqi_lag_1h']
+        if input_data.aqi_lag_6h is None:
+            data['aqi_lag_6h'] = data['aqi_lag_1h']
+        
         # Make future predictions
         future_predictions = predictor.predict_future(data, hours_ahead)
         
@@ -165,7 +190,7 @@ async def predict_future(input_data: PredictionInput, hours_ahead: int = 24):
                 "predicted_aqi": float(row['predicted_aqi']),
                 "confidence_lower": float(row['confidence_lower']),
                 "confidence_upper": float(row['confidence_upper']),
-                "risk_level": row['risk_level'],
+                "risk_level": str(row['risk_level']),
                 "timestamp": (current_time + pd.Timedelta(hours=int(row['hours_ahead']))).isoformat()
             }
             response.append(prediction)
@@ -195,6 +220,9 @@ async def get_cities():
 @app.get("/model/info")
 async def get_model_info():
     """Get information about the current model"""
+    if predictor is None:
+        raise HTTPException(status_code=503, detail="Model not initialized")
+        
     return {
         "model_type": predictor.metadata["model_name"],
         "last_trained": predictor.metadata["timestamp"],

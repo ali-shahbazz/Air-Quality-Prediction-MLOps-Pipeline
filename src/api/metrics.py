@@ -39,10 +39,10 @@ MODEL_PREDICTION_COUNT = Counter(
 )
 
 class MetricsMiddleware:
-    def _init_(self, app):
+    def __init__(self, app):
         self.app = app
     
-    async def _call_(self, scope, receive, send):
+    async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         

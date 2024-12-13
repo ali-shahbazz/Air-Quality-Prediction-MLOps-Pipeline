@@ -1,0 +1,29 @@
+{
+    "model_name": "gradient_boosting",
+    "timestamp": "2024-12-13T16:30:01.441470",
+    "metrics": {
+        "rmse": 2.7823119545934015e-05,
+        "feature_columns": [
+            "temperature",
+            "humidity",
+            "wind_speed",
+            "pressure",
+            "clouds",
+            "co",
+            "no2",
+            "o3",
+            "so2",
+            "pm2_5",
+            "pm10",
+            "hour",
+            "day_of_week",
+            "month",
+            "is_weekend",
+            "temperature_rolling_mean_6h",
+            "humidity_rolling_mean_6h",
+            "aqi_lag_1h",
+            "aqi_lag_3h",
+            "aqi_lag_6h"
+        ]
+    }
+}

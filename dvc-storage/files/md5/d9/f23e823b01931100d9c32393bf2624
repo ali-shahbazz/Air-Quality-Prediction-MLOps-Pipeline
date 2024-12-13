@@ -1,0 +1,31 @@
+{
+    "timestamp": "20241213_161212",
+    "num_records": 8,
+    "cities_collected": [
+        "New York",
+        "London",
+        "Tokyo",
+        "Paris",
+        "Beijing",
+        "Sydney",
+        "Dubai",
+        "Mumbai"
+    ],
+    "cities_failed": [],
+    "columns": [
+        "timestamp",
+        "city",
+        "temperature",
+        "humidity",
+        "wind_speed",
+        "pressure",
+        "clouds",
+        "aqi",
+        "co",
+        "no2",
+        "o3",
+        "so2",
+        "pm2_5",
+        "pm10"
+    ]
+}

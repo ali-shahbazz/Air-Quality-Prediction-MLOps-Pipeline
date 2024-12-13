@@ -1,0 +1,6 @@
+artifact_location: mlflow-artifacts:/983014316585232078
+creation_time: 1734089366059
+experiment_id: '983014316585232078'
+last_update_time: 1734089366059
+lifecycle_stage: active
+name: pollution_prediction
